@@ -122,7 +122,7 @@ footer{text-align:center;padding:40px 20px;font-family:'Inter',sans-serif;font-s
 
 <h2 id="intro">1. Introduction</h2>
 
-<p>Volatility — how much the stock market moves — sits at the center of finance. If the market drops 3% one day and bounces 2% the next, that's high volatility. If it drifts up 0.1% day after day, that's low volatility. Options contracts are priced based on expected future volatility, so if you can predict it more accurately than the market, you may have a useful risk-management or trading signal.</p>
+<p>Volatility — how much the stock market moves — matters a lot in finance. If the market drops 3% one day and bounces 2% the next, that's high volatility. If it drifts up 0.1% day after day, that's low volatility. Options contracts are priced based on expected future volatility, so if you can predict it more accurately than the market, you may have a useful risk-management or trading signal.</p>
 
 <p>We predict <strong>22-day forward realized volatility</strong> on the S&P 500 — essentially, how choppy will the market be over the next month? We frame this as both a regression problem (predict the exact level) and a classification problem (will there be a spike above the 90th historical percentile?).</p>
 
@@ -134,7 +134,7 @@ footer{text-align:center;padding:40px 20px;font-family:'Inter',sans-serif;font-s
 
 <p>The model everyone measures against is HAR-RV (Heterogeneous Autoregressive Realized Volatility), introduced by Corsi in 2009. It's a linear regression on just three numbers: yesterday's volatility, last week's, and last month's. Three parameters. That's it.</p>
 
-<p>Despite this simplicity, HAR-RV is incredibly hard to beat. Patton and Sheppard (2015) tested over 400 volatility forecasting models and found that sophisticated approaches rarely improved on HAR-RV by more than a few percent. The reason: volatility has strong <em>persistence</em> across multiple timescales, and HAR-RV captures this so efficiently that there's little room for complex models to add value without overfitting.</p>
+<p>Despite this simplicity, HAR-RV is incredibly hard to beat. Patton and Sheppard (2015) tested over 400 volatility forecasting models and found that sophisticated approaches rarely improved on HAR-RV by more than a few percent. Volatility is very <em>persistent</em> — if markets were choppy last week, they'll probably be choppy this week too. HAR-RV captures this so well that fancier models struggle to add anything without overfitting.</p>
 
 <h3 id="ml-vol">2.2 Machine Learning for Vol Forecasting</h3>
 
@@ -148,7 +148,7 @@ footer{text-align:center;padding:40px 20px;font-family:'Inter',sans-serif;font-s
 
 <h2 id="approach">3. Our Approach</h2>
 
-<p>Volatility is driven by heterogeneous information — price dynamics, market regimes, news sentiment, cross-asset contagion. No single model captures all of these. We built five specialized pipelines, each extracting a different type of signal from the data:</p>
+<p>Different things drive volatility — price patterns, what regime the market is in, news sentiment, how correlated different assets are. No single model captures all of these well. We built five specialized pipelines, each extracting a different type of signal from the data:</p>
 
 <figure>
   <img src="fig_architecture.png" alt="System architecture">
@@ -161,7 +161,7 @@ footer{text-align:center;padding:40px 20px;font-family:'Inter',sans-serif;font-s
 
 <p><strong>Pipeline 1: Variational Autoencoder (regime detection).</strong> An LSTM autoencoder compresses 30-day sequences into an 8-dimensional latent space. Similar market conditions map to nearby points. When reconstruction error is high, the model flags unusual conditions. Output: 13 features including latent coordinates, anomaly scores, and regime transition speed.</p>
 
-<p><strong>Pipeline 3: FinBERT (news sentiment).</strong> ProsusAI/finbert — a BERT model fine-tuned on financial text — analyzes NYT financial headlines daily. The idea: news carries forward-looking information that price data doesn't. A hawkish Fed speech shifts rate expectations before bond markets fully reprice. Output: 10 sentiment features. We switched from an earlier Claude API approach to FinBERT for full reproducibility — no API key needed, deterministic output.</p>
+<p><strong>Pipeline 3: FinBERT (news sentiment).</strong> ProsusAI/finbert — a BERT model fine-tuned on financial text — analyzes NYT financial headlines daily. The idea is that news carries forward-looking information that price data alone doesn't. A hawkish Fed speech shifts rate expectations before bond markets fully reprice. Output: 10 sentiment features. We switched from an earlier Claude API approach to FinBERT for full reproducibility — no API key needed, deterministic output.</p>
 
 <p><strong>Pipeline 4: Graph Attention Network (cross-asset contagion).</strong> A GAT models relationships between 26 cross-asset ETFs (spanning bonds, commodities, FX, equities, and sectors) via their rolling correlation matrix. When cross-asset correlations spike, diversification is breaking down — a leading indicator of broad vol events. Output: 9 features.</p>
 
@@ -169,7 +169,7 @@ footer{text-align:center;padding:40px 20px;font-family:'Inter',sans-serif;font-s
 
 <h3 id="meta">3.2 XGBoost Meta-Model</h3>
 
-<p>All 88 pipeline features feed into XGBoost (500 trees, depth 4). The final prediction blends XGBoost with HAR-RV using VIX-regime weights: during calm markets (VIX &lt; 18), XGBoost gets 70%; during crisis (VIX &gt; 35), HAR-RV gets 70%. This reflects the empirical observation that ML models add the most value in normal-to-elevated conditions, while simple persistence dominates during extreme events.</p>
+<p>All 88 pipeline features feed into XGBoost (500 trees, depth 4). The final prediction blends XGBoost with HAR-RV using VIX-regime weights: during calm markets (VIX &lt; 18), XGBoost gets 70%; during crisis (VIX &gt; 35), HAR-RV gets 70%. We found that ML helps most in normal-to-elevated conditions, but during extreme events the simple persistence model is more reliable.</p>
 
 <h2 id="adaptive">4. The Key Innovation: Adaptive Horizon</h2>
 
@@ -177,7 +177,7 @@ footer{text-align:center;padding:40px 20px;font-family:'Inter',sans-serif;font-s
 
 <p>During normal markets, predicting the next 22 trading days makes sense — you're trading monthly options and vol is persistent. But during a sudden crash, the 22-day window includes both the crisis days <em>and</em> the recovery days that follow, smoothing out the spike. A 5-day window captures just the immediate crisis.</p>
 
-<p>Consider: if the market drops 4% today, that move is 20% of a 5-day window but only 5% of a 22-day window. The shorter window reacts much faster to regime changes.</p>
+<p>To see why this matters: if the market drops 4% today, that move is 20% of a 5-day window but only 5% of a 22-day window. The shorter window reacts much faster to regime changes.</p>
 
 <p>We built a <strong>backward-looking shock detector</strong> that scores current market stress from 0 (calm) to 1 (extreme) based on four signals: whether yesterday's return was unusually large relative to the trailing 60 days, whether VIX jumped sharply, whether VIX is at a sustained high level, and whether recent 5-day vol is spiking. All signals use only past data — no future information.</p>
 
